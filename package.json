@@ -1,0 +1,21 @@
+{
+  "name": "pimlico-tutorial-template",
+  "version": "1.0.0",
+  "description": "A template repository for Pimlico tutorials (https://docs.pimlico.io/tutorial)",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^20.11.5",
+    "dotenv": "^16.3.1",
+    "permissionless": "^0.0.27",
+    "viem": "^2.0.6"
+  },
+  "devDependencies": {
+    "tsx": "^3.13.0"
+  }
+}
