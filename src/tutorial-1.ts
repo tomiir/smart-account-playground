@@ -1,13 +1,11 @@
 import "dotenv/config"
-import { getAccountNonce, createSmartAccountClient } from "permissionless"
-import { UserOperation, bundlerActions, getSenderAddress, getUserOperationHash, waitForUserOperationReceipt, GetUserOperationReceiptReturnType, signUserOperationHashWithECDSA } from "permissionless"
-import { pimlicoBundlerActions, pimlicoPaymasterActions } from "permissionless/actions/pimlico"
-import { Address, Hash, concat, createClient, createPublicClient, encodeFunctionData, http, Hex } from "viem"
-import { generatePrivateKey, privateKeyToAccount, signMessage } from "viem/accounts"
-import { lineaTestnet, polygonMumbai, sepolia } from "viem/chains"
-import { createPimlicoBundlerClient, createPimlicoPaymasterClient } from "permissionless/clients/pimlico";
-import { privateKeyToSimpleSmartAccount, privateKeyToSafeSmartAccount } from "permissionless/accounts";
-import { writeFileSync } from 'fs'
+import { createSmartAccountClient } from "permissionless"
+import { bundlerActions } from "permissionless"
+import { pimlicoBundlerActions } from "permissionless/actions/pimlico"
+import { createClient, createPublicClient, http, Hex } from "viem"
+import { sepolia } from "viem/chains"
+import { createPimlicoPaymasterClient } from "permissionless/clients/pimlico";
+import { privateKeyToSafeSmartAccount } from "permissionless/accounts";
 
 const privateKey = process.env.PRIVATE_KEY as Hex
 const apiKey = process.env.PIMLICO_API_KEY

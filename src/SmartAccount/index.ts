@@ -1,15 +1,14 @@
 import "dotenv/config"
-import { getAccountNonce, createSmartAccountClient, BundlerClient, SmartAccountClient } from "permissionless"
-import { UserOperation, bundlerActions, getSenderAddress, getUserOperationHash, waitForUserOperationReceipt, GetUserOperationReceiptReturnType, signUserOperationHashWithECDSA } from "permissionless"
-import { pimlicoBundlerActions, pimlicoPaymasterActions } from "permissionless/actions/pimlico"
-import { Address, Hash, concat, createClient, createPublicClient, encodeFunctionData, http, Hex, PublicClient } from "viem"
-import { generatePrivateKey, privateKeyToAccount, signMessage } from "viem/accounts"
-import { lineaTestnet, polygonMumbai, sepolia } from "viem/chains"
-import { PimlicoPaymasterClient, createPimlicoBundlerClient, createPimlicoPaymasterClient } from "permissionless/clients/pimlico";
-import { privateKeyToSimpleSmartAccount, privateKeyToSafeSmartAccount } from "permissionless/accounts";
-import { writeFileSync } from 'fs'
+import { getAccountNonce, createSmartAccountClient, BundlerClient, signUserOperationHashWithECDSA, BundlerActions } from "permissionless"
+import { UserOperation, bundlerActions, } from "permissionless"
+import { PimlicoBundlerActions, pimlicoBundlerActions } from "permissionless/actions/pimlico"
+import { Address, createClient, createPublicClient, http, Hex, PublicClient } from "viem"
+import { PimlicoPaymasterClient, createPimlicoPaymasterClient } from "permissionless/clients/pimlico";
+import {privateKeyToSafeSmartAccount } from "permissionless/accounts";
 
-import { publicRPCUrl, paymasterUrl, Chain, bundlerUrl, ENTRYPOINT_ADDRESSES } from "./constants"
+import { publicRPCUrl, paymasterUrl, Chain, bundlerUrl, ENTRYPOINT_ADDRESSES, USDC_ADDRESSES, PAYMASTER_ADDRESSES } from "./constants"
+import { approveUSDCSpendCallData } from './utils'
+import { privateKeyToAccount } from "viem/accounts"
 
 const apiKey = process.env.PIMLICO_API_KEY as Hex
 
@@ -24,7 +23,7 @@ export default class SmartAccount {
   private privateKey: Hex
   private publicClient: PublicClient
   private paymasterClient: PimlicoPaymasterClient
-  private bundlerClient: BundlerClient
+  private bundlerClient: BundlerClient & BundlerActions & PimlicoBundlerActions
 
   constructor({ chain, privateKey }: SmartAccountOptions) {
     console.log('SmartAccount constructor')
@@ -40,7 +39,7 @@ export default class SmartAccount {
       
     this.bundlerClient = createClient({
       transport:  http(bundlerUrl({ chain, apiKey })),
-      chain: sepolia
+      chain,
     }).extend(bundlerActions).extend(pimlicoBundlerActions)
   }
 
@@ -59,7 +58,23 @@ export default class SmartAccount {
       privateKey: this.privateKey,
       safeVersion: "1.4.1", // simple version
       entryPoint: ENTRYPOINT_ADDRESSES[this.chain.name], // global entrypoint
+      setupTransactions: [{
+        to: USDC_ADDRESSES[this.chain.name],
+        value: 0n,
+        data: approveUSDCSpendCallData({
+          to: PAYMASTER_ADDRESSES[this.chain.name],
+          amount: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffn,
+        }),
+      }]
     })
+  
+  public getNonce = async () => {
+    const smartAccountClient = await this.getSmartAccountClient()
+    return getAccountNonce(this.publicClient, {
+      sender: smartAccountClient.account.address as Hex,
+      entryPoint: ENTRYPOINT_ADDRESSES[this.chain.name],
+    })
+  }
 
   public sendTransaction = async ({ to, value, data }: { to: Address, value: bigint, data: Hex }) => {
     const smartAccountClient = await this.getSmartAccountClient()
@@ -74,11 +89,53 @@ export default class SmartAccount {
     })
   }
 
-  public getNonce = async () => {
-    const smartAccountClient = await this.getSmartAccountClient()
-    return getAccountNonce(this.publicClient, {
-      sender: smartAccountClient.account.address as Hex,
+  // This is somehow failing with AA23 error :thinking:
+  public sendUserOperation = async ({ callData, paymasterAndData }: { callData: Hex, paymasterAndData?: Hex }) => {
+    const account = await this.getAccount()
+    const gasPrices = await this.bundlerClient.getUserOperationGasPrice()
+    const nonce = await this.getNonce()
+    const userOperation: Partial<UserOperation> = {
+        sender: account.address as Hex,
+        nonce,
+        initCode: '0x',
+        callData,
+        maxFeePerGas: gasPrices.fast.maxFeePerGas,
+        maxPriorityFeePerGas: gasPrices.fast.maxPriorityFeePerGas,
+        callGasLimit: 100_000n, // hardcode it for now at a high value
+        verificationGasLimit: 500_000n, // hardcode it for now at a high value
+        preVerificationGas: 50_000n, // hardcode it for now at a high value
+        paymasterAndData,
+        signature: "0x"
+    }
+
+    const result = await this.paymasterClient.sponsorUserOperation({
+      userOperation: userOperation as UserOperation,
+      entryPoint: ENTRYPOINT_ADDRESSES[this.chain.name]
+    })
+
+    userOperation.preVerificationGas = result.preVerificationGas
+    userOperation.verificationGasLimit = result.verificationGasLimit
+    userOperation.callGasLimit = result.callGasLimit
+    userOperation.paymasterAndData = result.paymasterAndData
+
+    console.log('Signing user operation...')
+    userOperation.signature = await signUserOperationHashWithECDSA({
+      account: privateKeyToAccount(this.privateKey),
+      userOperation: userOperation as UserOperation,
+      chainId: this.chain.id,
       entryPoint: ENTRYPOINT_ADDRESSES[this.chain.name],
     })
+    console.log('Sending user operation...')
+    const userOperationHash = await this.bundlerClient.sendUserOperation({
+      userOperation: userOperation as UserOperation,
+      entryPoint: ENTRYPOINT_ADDRESSES[this.chain.name],
+    })
+    console.log(`UserOperation submitted. Hash: ${userOperationHash}`)
+
+    console.log("Querying for receipts...")
+    const receipt = await this.bundlerClient.waitForUserOperationReceipt({
+      hash: userOperationHash
+    })
+    console.log(`Receipt found!\nTransaction hash: ${receipt.receipt.transactionHash}`)
   }
 }

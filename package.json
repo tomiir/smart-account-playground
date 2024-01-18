@@ -10,6 +10,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@biomejs/biome": "^1.5.2",
     "@types/node": "^20.11.5",
     "dotenv": "^16.3.1",
     "permissionless": "^0.0.27",
